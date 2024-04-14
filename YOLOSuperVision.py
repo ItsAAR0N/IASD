@@ -1,6 +1,6 @@
 # Test code for final Speed Estimation and Vehicle tracking 
 # Author: Aaron Shek, University of Hong Kong
-# Date of last edit: 05/04/24
+# Date of last edit: 14/04/24
 
 import argparse
 import supervision as sv 
@@ -8,6 +8,7 @@ import numpy as np
 from inference.models.utils import get_roboflow_model
 from collections import defaultdict, deque
 import cv2
+import time
 
 SOURCE = np.array([[1252, 787], [2298, 803], [5039, 2159], [-550, 2159]])
 
@@ -40,7 +41,8 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--source_video_path",
-        required = True,
+        default = "data/vehicles.mp4",
+        required = False,
         help = "Path to the source video file",
         type = str,
     )
@@ -50,7 +52,7 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     video_info = sv.VideoInfo.from_video_path(args.source_video_path)
-    model = get_roboflow_model("yolov8x-640") # YoLoV8 640x input resolution.
+    model = get_roboflow_model("yolov8n-640") # YoLoV8n 640x input resolution.
 
     byte_track = sv.ByteTrack(frame_rate = video_info.fps) # Pass framerate because depends on info in constructor
 
@@ -74,7 +76,13 @@ if __name__ == "__main__":
 
     coordinates = defaultdict(lambda: deque(maxlen=video_info.fps)) # Store coordinates of the car in the path using dict
 
+    # Set window size
+    cv2.namedWindow("annotated_frame", cv2.WINDOW_NORMAL)  # Enable resizable window
+    cv2.resizeWindow("annotated_frame", 1280, 720)  # Set initial window size
+
     for frame in frame_generator:
+        start_calculation_time = time.time()  # Record start time for FPS calculation
+
         result = model.infer(frame)[0] # Run inference for every frame in for loop
         detections = sv.Detections.from_inference(result) # Convert result to Supervision object
         detections = detections[polygon_zone.trigger(detections)] # Whether detection is inside or outside zone
@@ -92,8 +100,8 @@ if __name__ == "__main__":
                 coordinate_start = coordinates[tracker_id][-1]
                 coordinate_end = coordinates[tracker_id][0]
                 distance = abs(coordinate_start - coordinate_end)
-                time = len(coordinates[tracker_id]) / video_info.fps
-                speed = distance / time * 3.6
+                calc_time = len(coordinates[tracker_id]) / video_info.fps
+                speed = distance / calc_time * 3.6
                 labels.append(f"#{tracker_id} {int(speed)} km/h")
 
         # labels = [ # Create labels then pass into label annotator
@@ -113,7 +121,16 @@ if __name__ == "__main__":
         annotated_frame = label_annotator.annotate(
             scene = annotated_frame, detections = detections, labels = labels
         )
-        cv2.imshow("annotated_frame", annotated_frame) # Use CV2 to visualize
+
+        annotated_frame_resized = cv2.resize(annotated_frame, (1280, 720))  # Resize the frame
+        
+        # Calculate FPS and add to frame
+        current_time = time.time()
+        fps = int(1 / (current_time - start_calculation_time))  # Calculate FPS
+        cv2.putText(annotated_frame_resized, f"FPS: {fps}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)  # Add FPS to the frame
+
+        cv2.imshow("annotated_frame", annotated_frame_resized)  # Show the resized frame
+
         if cv2.waitKey(1) == ord("q"): # Break
             break
     cv2.destroyAllWindows()
