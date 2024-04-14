@@ -33,6 +33,8 @@ class ViewTransformer:
     def transform_points(self, points: np.ndarray) -> np.ndarray:
         reshaped_points = points.reshape(-1, 1, 2).astype(np.float32)
         transformed_points = cv2.perspectiveTransform(reshaped_points, self.m)
+        if transformed_points is None:
+            return np.array([])  # Return an empty array if transformation fails
         return transformed_points.reshape(-1, 2)
 
 def parse_arguments() -> argparse.Namespace:
@@ -102,7 +104,10 @@ if __name__ == "__main__":
                 distance = abs(coordinate_start - coordinate_end)
                 calc_time = len(coordinates[tracker_id]) / video_info.fps
                 speed = distance / calc_time * 3.6
-                labels.append(f"#{tracker_id} {int(speed)} km/h")
+                if speed > 140:
+                    labels.append(f"#{tracker_id} OVERSPEED {int(speed)} km/h")
+                else:
+                    labels.append(f"#{tracker_id} {int(speed)} km/h")
 
         # labels = [ # Create labels then pass into label annotator
         #     f"x: {x}, y: {y}"
