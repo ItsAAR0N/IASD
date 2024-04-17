@@ -1,6 +1,6 @@
-# Test code for final Speed Estimation and Vehicle tracking 
+# Test code for final Speed Estimation and Vehicle tracking using SUPERVISION
 # Author: Aaron Shek, University of Hong Kong
-# Date of last edit: 14/04/24
+# Date of last edit: 16/04/24
 
 import argparse
 import supervision as sv 
@@ -10,20 +10,33 @@ from collections import defaultdict, deque
 import cv2
 import time
 
-SOURCE = np.array([[1252, 787], [2298, 803], [5039, 2159], [-550, 2159]])
-
-TARGET_WIDTH = 25
-TARGET_HEIGHT = 250
-
-TARGET = np.array(
+SOURCE = np.array(
     [
-        [0, 0],
-        [TARGET_WIDTH - 1, 0],
-        [TARGET_WIDTH - 1, TARGET_HEIGHT - 1],
-        [0, TARGET_HEIGHT - 1],
+       [1252, 787], # A
+       [2298, 803], # B
+       [5039, 2159], # C
+       [-550, 2159] # D
     ]
 )
 
+        # [708, 232], # A
+        # [1173, 228], # B
+        # [26, 525], # C
+        # [1874, 542] # D
+
+TARGET_WIDTH = 40 # RoI measures approx 25m x 250m long IRL
+TARGET_HEIGHT = 121
+
+TARGET = np.array(
+    [
+        [0, 0], # A'
+        [TARGET_WIDTH - 1, 0], # B' 
+        [TARGET_WIDTH - 1, TARGET_HEIGHT - 1], # C'
+        [0, TARGET_HEIGHT - 1], # D'
+    ]
+)
+
+# Perspective Transformation using OpenCV "getPerspectiveTransform"
 class ViewTransformer:
     def __init__(self, source: np.ndarray, target: np.ndarray):
         source = source.astype(np.float32)
@@ -78,11 +91,11 @@ if __name__ == "__main__":
 
     coordinates = defaultdict(lambda: deque(maxlen=video_info.fps)) # Store coordinates of the car in the path using dict
 
-    # Set window size
+    # Set window size and Mouse callback
     cv2.namedWindow("annotated_frame", cv2.WINDOW_NORMAL)  # Enable resizable window
     cv2.resizeWindow("annotated_frame", 1280, 720)  # Set initial window size
-
-    for frame in frame_generator:
+ 
+    for frame in frame_generator: # Pass frame by frame and run model
         start_calculation_time = time.time()  # Record start time for FPS calculation
 
         result = model.infer(frame)[0] # Run inference for every frame in for loop
@@ -91,14 +104,21 @@ if __name__ == "__main__":
         detections = byte_track.update_with_detections(detections=detections)
 
         points = detections.get_anchors_coordinates(anchor=sv.Position.BOTTOM_CENTER)
+        
+        # Plug view transformer into existing detection pipeline
         points = view_transformer.transform_points(points = points).astype(int)
 
+        # Store transformed coordinates
         labels = []
         for tracker_id, [_, y] in zip(detections.tracker_id, points):
             coordinates[tracker_id].append(y)
-            if len(coordinates[tracker_id]) < video_info.fps / 2:
+
+        for tracker_id in detections.tracker_id:
+            # Wait to have enough data
+            if len(coordinates[tracker_id]) < video_info.fps / 2: # < video_info.fps / 2
                 labels.append(f"#{tracker_id}")
             else:
+                # Calculate the speed
                 coordinate_start = coordinates[tracker_id][-1]
                 coordinate_end = coordinates[tracker_id][0]
                 distance = abs(coordinate_start - coordinate_end)
@@ -127,14 +147,14 @@ if __name__ == "__main__":
             scene = annotated_frame, detections = detections, labels = labels
         )
 
-        annotated_frame_resized = cv2.resize(annotated_frame, (1280, 720))  # Resize the frame
+        # annotated_frame_resized = cv2.resize(annotated_frame, (1280, 720))  # Resize the frame
         
         # Calculate FPS and add to frame
         current_time = time.time()
         fps = int(1 / (current_time - start_calculation_time))  # Calculate FPS
-        cv2.putText(annotated_frame_resized, f"FPS: {fps}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)  # Add FPS to the frame
+        cv2.putText(annotated_frame, f"FPS: {fps}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)  # Add FPS to the frame
 
-        cv2.imshow("annotated_frame", annotated_frame_resized)  # Show the resized frame
+        cv2.imshow("annotated_frame", annotated_frame)  # Show the resized frame
 
         if cv2.waitKey(1) == ord("q"): # Break
             break
